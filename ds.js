@@ -255,9 +255,9 @@ function handleMediaUpdate(snapshot) {
         if (media.url.includes('youtube.com') || media.url.includes('youtu.be')) {
             const videoId = media.url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
             if (videoId) {
-                console.log(`Configurando vídeo do YouTube com loop: ${media.loop}`);
+                console.log('Configurando vídeo do YouTube com loop ativado');
                 const iframe = document.createElement('iframe');
-                iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=${media.loop ? 1 : 0}${media.loop ? '&playlist=' + videoId : ''}`;
+                iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}`;
                 iframe.style.width = '100%';
                 iframe.style.height = '100%';
                 iframe.frameBorder = '0';
@@ -287,8 +287,8 @@ function setVideoAttributes(video, media) {
     video.muted = true;
     video.playsinline = true;
     video.controls = false;
-    video.loop = media.loop || false;
-    console.log(`Configurando vídeo local com loop: ${video.loop}`);
+    video.loop = true;
+    console.log('Configurando vídeo local com loop ativado');
     video.onerror = () => showError('Erro ao carregar o vídeo');
     video.onloadeddata = function() {
         video.play().catch(function(error) {
@@ -325,19 +325,14 @@ function playPlaylist(items) {
             if (item.url.includes('youtube.com') || item.url.includes('youtu.be')) {
                 const videoId = item.url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
                 if (videoId) {
-                    console.log(`Configurando vídeo do YouTube na playlist com loop: ${item.loop}`);
+                    console.log('Configurando vídeo do YouTube na playlist com loop ativado');
                     const iframe = document.createElement('iframe');
-                    iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=${item.loop ? 1 : 0}${item.loop ? '&playlist=' + videoId : ''}`;
+                    iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}`;
                     iframe.style.width = '100%';
                     iframe.style.height = '100%';
                     iframe.frameBorder = '0';
                     iframe.allow = 'autoplay; encrypted-media';
                     elements.mediaDisplay.appendChild(iframe);
-                    // Simula o fim do vídeo para avançar na playlist (YouTube não dispara 'onended')
-                    setTimeout(() => {
-                        currentIndex++;
-                        showNextItem();
-                    }, 30000); // Ajuste conforme necessário (ex.: duração média do vídeo)
                 } else {
                     console.error('URL do YouTube inválida na playlist:', item.url);
                     currentIndex++;
@@ -362,18 +357,16 @@ function playPlaylist(items) {
         video.muted = true;
         video.playsinline = true;
         video.controls = false;
-        video.loop = item.loop || false;
-        console.log(`Configurando vídeo da playlist com loop: ${video.loop}`);
+        video.loop = true;
+        console.log('Configurando vídeo da playlist com loop ativado');
         video.onerror = () => {
             console.error('Erro ao carregar vídeo:', item.url);
             currentIndex++;
             showNextItem();
         };
         video.onended = () => {
-            if (!video.loop) {
-                currentIndex++;
-                showNextItem();
-            }
+            currentIndex++;
+            showNextItem();
         };
         video.onloadeddata = () => video.play().catch(e => {
             console.error('Erro ao reproduzir vídeo:', e);
