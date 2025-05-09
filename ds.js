@@ -252,11 +252,27 @@ function handleMediaUpdate(snapshot) {
         img.onerror = () => showError('Erro ao carregar a imagem');
         elements.mediaDisplay.appendChild(img);
     } else if (media.tipo === 'video') {
-        const video = document.createElement('video');
-        video.src = media.url;
-        setVideoAttributes(video, media);
-        elements.mediaDisplay.appendChild(video);
-        updatePlayerStatus('⚠ Reproduzindo da rede', 'online');
+        if (media.url.includes('youtube.com') || media.url.includes('youtu.be')) {
+            const videoId = media.url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
+            if (videoId) {
+                console.log(`Configurando vídeo do YouTube com loop: ${media.loop}`);
+                const iframe = document.createElement('iframe');
+                iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=${media.loop ? 1 : 0}${media.loop ? '&playlist=' + videoId : ''}`;
+                iframe.style.width = '100%';
+                iframe.style.height = '100%';
+                iframe.frameBorder = '0';
+                iframe.allow = 'autoplay; encrypted-media';
+                elements.mediaDisplay.appendChild(iframe);
+            } else {
+                showError('URL do YouTube inválida');
+            }
+        } else {
+            const video = document.createElement('video');
+            video.src = media.url;
+            setVideoAttributes(video, media);
+            elements.mediaDisplay.appendChild(video);
+            updatePlayerStatus('⚠ Reproduzindo da rede', 'online');
+        }
     } else if (media.tipo === 'playlist' && media.items && media.items.length > 0) {
         playPlaylist(media.items);
     } else if (media.tipo === 'activation' || media.tipo === 'status') {
@@ -272,6 +288,7 @@ function setVideoAttributes(video, media) {
     video.playsinline = true;
     video.controls = false;
     video.loop = media.loop || false;
+    console.log(`Configurando vídeo local com loop: ${video.loop}`);
     video.onerror = () => showError('Erro ao carregar o vídeo');
     video.onloadeddata = function() {
         video.play().catch(function(error) {
@@ -305,11 +322,34 @@ function playPlaylist(items) {
                 showNextItem();
             }, (item.duration || 10) * 1000);
         } else if (item.type === 'video') {
-            const video = document.createElement('video');
-            video.src = item.url;
-            setPlaylistVideoAttributes(video, item);
-            elements.mediaDisplay.appendChild(video);
-            updatePlayerStatus('⚠ Reproduzindo da rede', 'online');
+            if (item.url.includes('youtube.com') || item.url.includes('youtu.be')) {
+                const videoId = item.url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
+                if (videoId) {
+                    console.log(`Configurando vídeo do YouTube na playlist com loop: ${item.loop}`);
+                    const iframe = document.createElement('iframe');
+                    iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=${item.loop ? 1 : 0}${item.loop ? '&playlist=' + videoId : ''}`;
+                    iframe.style.width = '100%';
+                    iframe.style.height = '100%';
+                    iframe.frameBorder = '0';
+                    iframe.allow = 'autoplay; encrypted-media';
+                    elements.mediaDisplay.appendChild(iframe);
+                    // Simula o fim do vídeo para avançar na playlist (YouTube não dispara 'onended')
+                    setTimeout(() => {
+                        currentIndex++;
+                        showNextItem();
+                    }, 30000); // Ajuste conforme necessário (ex.: duração média do vídeo)
+                } else {
+                    console.error('URL do YouTube inválida na playlist:', item.url);
+                    currentIndex++;
+                    showNextItem();
+                }
+            } else {
+                const video = document.createElement('video');
+                video.src = item.url;
+                setPlaylistVideoAttributes(video, item);
+                elements.mediaDisplay.appendChild(video);
+                updatePlayerStatus('⚠ Reproduzindo da rede', 'online');
+            }
         } else {
             console.log('Tipo de item desconhecido:', item.type);
             currentIndex++;
@@ -322,14 +362,18 @@ function playPlaylist(items) {
         video.muted = true;
         video.playsinline = true;
         video.controls = false;
+        video.loop = item.loop || false;
+        console.log(`Configurando vídeo da playlist com loop: ${video.loop}`);
         video.onerror = () => {
             console.error('Erro ao carregar vídeo:', item.url);
             currentIndex++;
             showNextItem();
         };
         video.onended = () => {
-            currentIndex++;
-            showNextItem();
+            if (!video.loop) {
+                currentIndex++;
+                showNextItem();
+            }
         };
         video.onloadeddata = () => video.play().catch(e => {
             console.error('Erro ao reproduzir vídeo:', e);
@@ -385,7 +429,7 @@ style.textContent = `
         align-items: center;
         justify-content: center;
     }
-    video, img {
+    video, img, iframe {
         max-width: 100%;
         max-height: 100%;
         object-fit: contain;
