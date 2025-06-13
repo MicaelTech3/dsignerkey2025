@@ -55,17 +55,25 @@ class DOMManager {
       mediaDisplay: document.getElementById('media-display'),
       backBtn: document.getElementById('back-btn')
     };
+    // Add progress indicator
+    this.progressIndicator = document.createElement('div');
+    this.progressIndicator.id = 'download-progress';
+    document.body.appendChild(this.progressIndicator);
   }
 
   initialize(state) {
     this.elements.activationKey.textContent = state.currentKey;
     this.updateGenStatus('Pronto para uso', 'online');
     this.setupEventListeners(state);
+    this.progressIndicator.style.display = 'none'; // Hide by default
   }
 
   setupEventListeners(state) {
     document.addEventListener('DOMContentLoaded', () => this.checkMediaOnLoad(state));
-    this.elements.viewBtn.addEventListener('click', () => this.enterPlayerMode(state));
+    this.elements.viewBtn.addEventListener('click', () => {
+      FullscreenManager.enterFullscreen();
+      this.enterPlayerMode(state);
+    });
     this.elements.exitBtn.addEventListener('click', () => this.exitPlayerMode(state));
     this.elements.mediaDisplay.addEventListener('click', () => this.showBackButton(state));
     this.elements.backBtn.addEventListener('click', () => this.exitPlayerMode(state));
@@ -102,7 +110,6 @@ class DOMManager {
     db.ref('midia/' + state.currentKey).once('value')
       .then(snapshot => {
         if (snapshot.exists()) {
-          FullscreenManager.enterFullscreen();
           this.enterPlayerMode(state);
         } else {
           this.elements.generatorMode.style.display = 'flex';
@@ -136,6 +143,29 @@ class DOMManager {
     if (e.key === 'Escape' || e.key === 'Backspace') {
       this.exitPlayerMode(state);
     }
+  }
+
+  initPlayerMode(state) {
+    const mediaPlayer = new MediaPlayer(this, state);
+    mediaPlayer.initPlayerMode();
+  }
+
+  stopListening(state) {
+    if (state.unsubscribe) {
+      db.ref('midia/' + state.currentKey).off('value', state.unsubscribe);
+      state.unsubscribe = null;
+      this.clearMedia();
+    }
+  }
+
+  clearMedia() {
+    this.elements.mediaDisplay.innerHTML = '';
+    this.progressIndicator.style.display = 'none';
+  }
+
+  updateProgress(percentage) {
+    this.progressIndicator.style.display = 'block';
+    this.progressIndicator.textContent = `Baixando: ${percentage}%`;
   }
 }
 
@@ -186,36 +216,43 @@ class MediaCache {
     });
   }
 
-  static async cacheAndPlayVideo(videoUrl, callback) {
+  static async cacheVideo(videoUrl, domManager) {
     const fileName = encodeURIComponent(videoUrl);
     const cacheKey = `cached-video-${fileName}`;
     
     try {
       const db = await this.initDB();
-      const transaction = db.transaction("videos", "readonly");
-      const store = transaction.objectStore("videos");
-      const getRequest = store.get(cacheKey);
+      const response = await fetch(videoUrl);
+      const reader = response.body.getReader();
+      const contentLength = +response.headers.get('content-length');
+      let receivedLength = 0;
+      let chunks = [];
 
-      getRequest.onsuccess = () => {
-        if (getRequest.result) {
-          callback(URL.createObjectURL(getRequest.result));
-        } else {
-          fetch(videoUrl)
-            .then(res => res.blob())
-            .then(blob => {
-              const saveTx = db.transaction("videos", "readwrite");
-              saveTx.objectStore("videos").put(blob, cacheKey);
-              callback(URL.createObjectURL(blob));
-            })
-            .catch(err => {
-              console.error("Erro ao baixar vídeo:", err);
-              callback(videoUrl);
-            });
+      await new Promise((resolve, reject) => {
+        function read() {
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              resolve();
+              return;
+            }
+            chunks.push(value);
+            receivedLength += value.length;
+            const percentage = Math.round((receivedLength / contentLength) * 100);
+            domManager.updateProgress(percentage);
+            read();
+          }).catch(reject);
         }
-      };
+        read();
+      });
+
+      const blob = new Blob(chunks);
+      const saveTx = db.transaction("videos", "readwrite");
+      saveTx.objectStore("videos").put(blob, cacheKey);
+      domManager.updateProgress(100);
+      setTimeout(() => domManager.progressIndicator.style.display = 'none', 1000);
     } catch (err) {
-      console.error("Erro ao acessar cache:", err);
-      callback(videoUrl);
+      console.error("Erro ao cachear vídeo:", err);
+      domManager.progressIndicator.style.display = 'none';
     }
   }
 }
@@ -254,7 +291,6 @@ class MediaPlayer {
         if (snapshot.exists()) {
           this.handleMediaUpdate(snapshot);
           if (!this.state.isInPlayerMode) {
-            FullscreenManager.enterFullscreen();
             this.domManager.enterPlayerMode(this.state);
           }
         } else if (this.state.isInPlayerMode) {
@@ -276,13 +312,8 @@ class MediaPlayer {
     if (this.state.unsubscribe) {
       db.ref('midia/' + this.state.currentKey).off('value', this.state.unsubscribe);
       this.state.unsubscribe = null;
-      this.clearMedia();
+      this.domManager.clearMedia();
     }
-  }
-
-  clearMedia() {
-    this.domManager.elements.mediaDisplay.innerHTML = '';
-    this.state.currentMedia = null;
   }
 
   handleMediaUpdate(snapshot) {
@@ -321,7 +352,7 @@ class MediaPlayer {
           this.domManager.showError('URL do YouTube inválida');
         }
       } else {
-        const video = this.createCachedVideoElement(media.url, media);
+        const video = this.createVideoElement(media.url, media);
         this.domManager.elements.mediaDisplay.appendChild(video);
       }
     } else if (media.tipo === 'playlist' && media.items && media.items.length > 0) {
@@ -331,12 +362,14 @@ class MediaPlayer {
     }
   }
 
-  createCachedVideoElement(url, media) {
+  createVideoElement(url, media) {
     const video = document.createElement('video');
     this.setVideoAttributes(video, media);
-    MediaCache.cacheAndPlayVideo(url, (localUrl) => {
-      video.src = localUrl;
-    });
+    video.src = url; // Load directly from URL first
+    video.onplaying = () => {
+      MediaCache.cacheVideo(url, this.domManager); // Cache after playing starts
+    };
+    video.onerror = () => this.domManager.showError('Erro ao carregar o vídeo');
     return video;
   }
 
@@ -346,7 +379,6 @@ class MediaPlayer {
     video.playsInline = true;
     video.controls = false;
     video.loop = true;
-    video.onerror = () => this.domManager.showError('Erro ao carregar o vídeo');
     video.onloadeddata = () => video.play().catch(() => this.domManager.showError('Falha ao reproduzir o vídeo'));
   }
 
@@ -387,7 +419,7 @@ class MediaPlayer {
             showNextItem();
           }
         } else {
-          const video = this.createCachedVideoElement(item.url, item);
+          const video = this.createVideoElement(item.url, item);
           video.onended = () => {
             currentIndex++;
             showNextItem();
@@ -433,6 +465,17 @@ styleSheet.textContent = `
     max-height: 100%;
     object-fit: contain;
   }
+  #download-progress {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 16px;
+    z-index: 1000;
+  }
 `;
 document.head.appendChild(styleSheet);
 
@@ -442,5 +485,5 @@ document.head.appendChild(styleSheet);
   const domManager = new DOMManager();
   const mediaPlayer = new MediaPlayer(domManager, appState);
   domManager.initialize(appState);
-  mediaPlayer.checkMediaOnLoad(); // Ensure media check runs on load
+  mediaPlayer.checkMediaOnLoad();
 })();
