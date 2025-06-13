@@ -22,7 +22,6 @@ class AppState {
     this.backButtonTimeout = null;
     this.isInPlayerMode = false;
     this.isOnline = navigator.onLine;
-    this.lastMediaHash = null; // To track changes
   }
 
   loadKey() {
@@ -140,6 +139,7 @@ class DOMManager {
   }
 
   exitPlayerMode(state) {
+    // Removed FullscreenManager.exitFullscreen() due to WebView limitations
     this.elements.playerMode.style.display = 'none';
     this.elements.generatorMode.style.display = 'flex';
     this.stopListening(state);
@@ -175,8 +175,7 @@ class DOMManager {
   updateProgress(percentage) {
     this.progressIndicator.style.display = 'block';
     this.progressIndicator.textContent = `${percentage}%`;
-    if (window.Android) window.Android.showProgress(percentage); // Send to Android
-    console.log(`Progress: ${percentage}%`); // For WebView debugging
+    console.log(`Progress: ${percentage}%`); // Debug log for WebView
   }
 
   handleNetworkChange(state) {
@@ -195,18 +194,6 @@ class DOMManager {
       } else {
         this.showError('Nenhum conteúdo cached disponível');
       }
-    });
-  }
-
-  setVideoAttributes(video, media) {
-    video.autoplay = true;
-    video.muted = true;
-    video.playsInline = true;
-    video.controls = false;
-    video.loop = true;
-    video.onloadeddata = () => video.play().catch(err => {
-      console.error('Falha ao reproduzir o vídeo:', err);
-      this.showError('Falha ao reproduzir o vídeo');
     });
   }
 }
@@ -305,7 +292,6 @@ class MediaPlayer {
   constructor(domManager, state) {
     this.domManager = domManager;
     this.state = state;
-    this.updateInterval = null;
   }
 
   initPlayerMode() {
@@ -313,7 +299,6 @@ class MediaPlayer {
     window.addEventListener('online', () => this.handleOnline());
     window.addEventListener('offline', () => this.handleOffline());
     this.startPublicListening();
-    this.startUpdateCheck();
   }
 
   handleOnline() {
@@ -321,13 +306,11 @@ class MediaPlayer {
     if (!this.state.unsubscribe) {
       this.startPublicListening();
     }
-    this.startUpdateCheck();
   }
 
   handleOffline() {
     this.domManager.updatePlayerStatus('⚡ Offline', 'offline');
     this.loadFromCache();
-    this.stopUpdateCheck();
   }
 
   startPublicListening() {
@@ -367,11 +350,9 @@ class MediaPlayer {
 
   async handleMediaUpdate(snapshot) {
     const media = snapshot.val();
-    const mediaHash = JSON.stringify(media);
-    if (this.state.lastMediaHash === mediaHash) return;
+    if (JSON.stringify(this.state.currentMedia) === JSON.stringify(media)) return;
 
     this.state.currentMedia = media;
-    this.state.lastMediaHash = mediaHash;
     this.domManager.updatePlayerStatus('✔ Online - Conteúdo recebido', 'online');
     this.domManager.elements.mediaDisplay.innerHTML = '';
 
@@ -416,7 +397,7 @@ class MediaPlayer {
   async createVideoElement(url, media) {
     const cachedBlob = await MediaCache.getCachedVideo(url);
     const video = document.createElement('video');
-    this.domManager.setVideoAttributes(video, media);
+    this.setVideoAttributes(video, media);
 
     if (cachedBlob) {
       video.src = URL.createObjectURL(cachedBlob);
@@ -434,6 +415,18 @@ class MediaPlayer {
       this.domManager.showError('Erro ao carregar o vídeo');
     };
     return video;
+  }
+
+  setVideoAttributes(video, media) {
+    video.autoplay = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.controls = false;
+    video.loop = true;
+    video.onloadeddata = () => video.play().catch(err => {
+      console.error('Falha ao reproduzir o vídeo:', err);
+      this.domManager.showError('Falha ao reproduzir o vídeo');
+    });
   }
 
   playPlaylist(items) {
@@ -489,47 +482,11 @@ class MediaPlayer {
 
     showNextItem();
   }
-
-  loadFromCache() {
-    this.domManager.loadFromCache(this.state);
-  }
-
-  startUpdateCheck() {
-    if (this.updateInterval) clearInterval(this.updateInterval);
-    this.updateInterval = setInterval(() => {
-      if (this.state.isOnline) {
-        db.ref('midia/' + this.state.currentKey).once('value')
-          .then(snapshot => {
-            if (snapshot.exists()) {
-              const media = snapshot.val();
-              const mediaHash = JSON.stringify(media);
-              if (this.state.lastMediaHash !== mediaHash) {
-                this.handleMediaUpdate(snapshot);
-                if (media.tipo === 'video' && media.url) {
-                  MediaCache.cacheVideo(media.url, this.domManager);
-                }
-              }
-            }
-          })
-          .catch(error => console.error('Erro ao verificar atualizações:', error));
-      }
-    }, 10000); // Check every 10 seconds
-  }
-
-  stopUpdateCheck() {
-    if (this.updateInterval) clearInterval(this.updateInterval);
-    this.updateInterval = null;
-  }
 }
 
 // CSS Styling
 const styleSheet = document.createElement('style');
 styleSheet.textContent = `
-  body {
-    background-color: #FFFFFF; /* Bright white background to increase brightness */
-    margin: 0;
-    padding: 0;
-  }
   .error-message {
     color: #ff5555;
     font-size: 24px;
@@ -550,7 +507,7 @@ styleSheet.textContent = `
     display: flex;
     align-items: center;
     justify-content: center;
-    position: relative;
+    position: relative; /* Ensure proper layering */
   }
   video, img, iframe {
     max-width: 100%;
@@ -558,7 +515,7 @@ styleSheet.textContent = `
     object-fit: contain;
   }
   #download-progress {
-    position: absolute;
+    position: absolute; /* Changed to absolute for WebView compatibility */
     top: 10px;
     right: 10px;
     background-color: rgba(0, 0, 0, 0.7);
