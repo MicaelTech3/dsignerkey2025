@@ -21,6 +21,7 @@ class AppState {
     this.currentMedia = null;
     this.backButtonTimeout = null;
     this.isInPlayerMode = false;
+    this.isOnline = navigator.onLine;
   }
 
   loadKey() {
@@ -55,7 +56,6 @@ class DOMManager {
       mediaDisplay: document.getElementById('media-display'),
       backBtn: document.getElementById('back-btn')
     };
-    // Add progress indicator
     this.progressIndicator = document.createElement('div');
     this.progressIndicator.id = 'download-progress';
     document.body.appendChild(this.progressIndicator);
@@ -65,25 +65,28 @@ class DOMManager {
     this.elements.activationKey.textContent = state.currentKey;
     this.updateGenStatus('Pronto para uso', 'online');
     this.setupEventListeners(state);
-    this.progressIndicator.style.display = 'none'; // Hide by default
+    this.progressIndicator.style.display = 'none';
+    this.handleNetworkChange(state);
   }
 
   setupEventListeners(state) {
     document.addEventListener('DOMContentLoaded', () => this.checkMediaOnLoad(state));
     this.elements.viewBtn.addEventListener('click', () => {
-      FullscreenManager.enterFullscreen();
       this.enterPlayerMode(state);
     });
     this.elements.exitBtn.addEventListener('click', () => this.exitPlayerMode(state));
     this.elements.mediaDisplay.addEventListener('click', () => this.showBackButton(state));
     this.elements.backBtn.addEventListener('click', () => this.exitPlayerMode(state));
-    document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e, state));
+    window.addEventListener('online', () => this.handleNetworkChange(state));
+    window.addEventListener('offline', () => this.handleNetworkChange(state));
   }
 
   updateGenStatus(message, status) {
     const el = document.getElementById('gen-status');
-    el.textContent = message;
-    el.className = `connection-status ${status}`;
+    if (el) {
+      el.textContent = message;
+      el.className = `connection-status ${status}`;
+    }
   }
 
   updatePlayerStatus(message, status) {
@@ -107,6 +110,11 @@ class DOMManager {
   }
 
   checkMediaOnLoad(state) {
+    if (!state.isOnline) {
+      this.showError('Sem conexão. Verificando cache...');
+      this.loadFromCache(state);
+      return;
+    }
     db.ref('midia/' + state.currentKey).once('value')
       .then(snapshot => {
         if (snapshot.exists()) {
@@ -119,6 +127,7 @@ class DOMManager {
         console.error('Erro ao verificar mídia:', error);
         this.updateGenStatus('Erro ao verificar mídia', 'offline');
         this.elements.generatorMode.style.display = 'flex';
+        this.loadFromCache(state);
       });
   }
 
@@ -130,7 +139,7 @@ class DOMManager {
   }
 
   exitPlayerMode(state) {
-    FullscreenManager.exitFullscreen();
+    // Removed FullscreenManager.exitFullscreen() due to WebView limitations
     this.elements.playerMode.style.display = 'none';
     this.elements.generatorMode.style.display = 'flex';
     this.stopListening(state);
@@ -165,38 +174,38 @@ class DOMManager {
 
   updateProgress(percentage) {
     this.progressIndicator.style.display = 'block';
-    this.progressIndicator.textContent = `Baixando: ${percentage}%`;
+    this.progressIndicator.textContent = `${percentage}%`;
+    console.log(`Progress: ${percentage}%`); // Debug log for WebView
+  }
+
+  handleNetworkChange(state) {
+    state.isOnline = navigator.onLine;
+    this.updateGenStatus(state.isOnline ? 'Pronto para uso' : 'Offline', state.isOnline ? 'online' : 'offline');
+  }
+
+  loadFromCache(state) {
+    MediaCache.getCachedVideo(this.state.currentMedia?.url).then(cachedBlob => {
+      if (cachedBlob && this.state.currentMedia?.tipo === 'video') {
+        this.elements.mediaDisplay.innerHTML = '';
+        const video = document.createElement('video');
+        this.setVideoAttributes(video, this.state.currentMedia);
+        video.src = URL.createObjectURL(cachedBlob);
+        this.elements.mediaDisplay.appendChild(video);
+      } else {
+        this.showError('Nenhum conteúdo cached disponível');
+      }
+    });
   }
 }
 
-// Fullscreen Management
+// Fullscreen Management (Disabled for WebView)
 class FullscreenManager {
   static enterFullscreen() {
-    const element = document.documentElement;
-    const requestFullscreen = element.requestFullscreen || 
-                             element.mozRequestFullScreen || 
-                             element.webkitRequestFullscreen || 
-                             element.msRequestFullscreen;
-    
-    if (requestFullscreen) {
-      requestFullscreen.call(element).catch(err => {
-        console.error('Erro ao entrar em fullscreen:', err.message);
-      });
-    }
-    document.body.classList.add('fullscreen-mode');
+    console.warn('Fullscreen not supported in WebView. Use native Android fullscreen.');
   }
 
   static exitFullscreen() {
-    const exitFullscreen = document.exitFullscreen || 
-                           document.mozCancelFullScreen || 
-                           document.webkitExitFullscreen || 
-                           document.msExitFullscreen;
-    
-    if (exitFullscreen && (document.fullscreenElement || document.mozFullScreenElement || 
-        document.webkitFullscreenElement || document.msFullscreenElement)) {
-      exitFullscreen.call(document);
-    }
-    document.body.classList.remove('fullscreen-mode');
+    console.warn('Fullscreen not supported in WebView. Use native Android fullscreen.');
   }
 }
 
@@ -222,9 +231,10 @@ class MediaCache {
     
     try {
       const db = await this.initDB();
-      const response = await fetch(videoUrl);
+      const response = await fetch(videoUrl, { mode: 'cors' });
+      if (!response.ok) throw new Error('Falha na resposta da rede: ' + response.status);
       const reader = response.body.getReader();
-      const contentLength = +response.headers.get('content-length');
+      const contentLength = +response.headers.get('content-length') || 1;
       let receivedLength = 0;
       let chunks = [];
 
@@ -235,10 +245,12 @@ class MediaCache {
               resolve();
               return;
             }
-            chunks.push(value);
-            receivedLength += value.length;
-            const percentage = Math.round((receivedLength / contentLength) * 100);
-            domManager.updateProgress(percentage);
+            if (value) {
+              chunks.push(value);
+              receivedLength += value.length;
+              const percentage = Math.round((receivedLength / contentLength) * 100);
+              domManager.updateProgress(percentage);
+            }
             read();
           }).catch(reject);
         }
@@ -246,13 +258,31 @@ class MediaCache {
       });
 
       const blob = new Blob(chunks);
-      const saveTx = db.transaction("videos", "readwrite");
+      const saveTx = db.transaction("readwrite", "videos");
       saveTx.objectStore("videos").put(blob, cacheKey);
       domManager.updateProgress(100);
       setTimeout(() => domManager.progressIndicator.style.display = 'none', 1000);
     } catch (err) {
       console.error("Erro ao cachear vídeo:", err);
+      domManager.updateProgress(0);
       domManager.progressIndicator.style.display = 'none';
+    }
+  }
+
+  static async getCachedVideo(videoUrl) {
+    const fileName = encodeURIComponent(videoUrl);
+    const cacheKey = `cached-video-${fileName}`;
+    try {
+      const db = await this.initDB();
+      const transaction = db.transaction("videos", "readonly");
+      const store = transaction.objectStore("videos");
+      const getRequest = store.get(cacheKey);
+      return new Promise((resolve) => {
+        getRequest.onsuccess = () => resolve(getRequest.result);
+      });
+    } catch (err) {
+      console.error("Erro ao acessar cache:", err);
+      return null;
     }
   }
 }
@@ -280,6 +310,7 @@ class MediaPlayer {
 
   handleOffline() {
     this.domManager.updatePlayerStatus('⚡ Offline', 'offline');
+    this.loadFromCache();
   }
 
   startPublicListening() {
@@ -303,6 +334,7 @@ class MediaPlayer {
         this.domManager.updatePlayerStatus('Erro de conexão: ' + error.message, 'offline');
         if (this.state.isInPlayerMode) {
           this.domManager.exitPlayerMode(this.state);
+          this.loadFromCache();
         }
       }
     );
@@ -316,7 +348,7 @@ class MediaPlayer {
     }
   }
 
-  handleMediaUpdate(snapshot) {
+  async handleMediaUpdate(snapshot) {
     const media = snapshot.val();
     if (JSON.stringify(this.state.currentMedia) === JSON.stringify(media)) return;
 
@@ -352,7 +384,7 @@ class MediaPlayer {
           this.domManager.showError('URL do YouTube inválida');
         }
       } else {
-        const video = this.createVideoElement(media.url, media);
+        const video = await this.createVideoElement(media.url, media);
         this.domManager.elements.mediaDisplay.appendChild(video);
       }
     } else if (media.tipo === 'playlist' && media.items && media.items.length > 0) {
@@ -362,14 +394,26 @@ class MediaPlayer {
     }
   }
 
-  createVideoElement(url, media) {
+  async createVideoElement(url, media) {
+    const cachedBlob = await MediaCache.getCachedVideo(url);
     const video = document.createElement('video');
     this.setVideoAttributes(video, media);
-    video.src = url; // Load directly from URL first
+
+    if (cachedBlob) {
+      video.src = URL.createObjectURL(cachedBlob);
+    } else {
+      video.src = url;
+    }
+
     video.onplaying = () => {
-      MediaCache.cacheVideo(url, this.domManager); // Cache after playing starts
+      if (!cachedBlob && this.state.isOnline) {
+        MediaCache.cacheVideo(url, this.domManager);
+      }
     };
-    video.onerror = () => this.domManager.showError('Erro ao carregar o vídeo');
+    video.onerror = () => {
+      console.error('Erro ao carregar vídeo:', url);
+      this.domManager.showError('Erro ao carregar o vídeo');
+    };
     return video;
   }
 
@@ -379,7 +423,10 @@ class MediaPlayer {
     video.playsInline = true;
     video.controls = false;
     video.loop = true;
-    video.onloadeddata = () => video.play().catch(() => this.domManager.showError('Falha ao reproduzir o vídeo'));
+    video.onloadeddata = () => video.play().catch(err => {
+      console.error('Falha ao reproduzir o vídeo:', err);
+      this.domManager.showError('Falha ao reproduzir o vídeo');
+    });
   }
 
   playPlaylist(items) {
@@ -419,12 +466,13 @@ class MediaPlayer {
             showNextItem();
           }
         } else {
-          const video = this.createVideoElement(item.url, item);
-          video.onended = () => {
-            currentIndex++;
-            showNextItem();
-          };
-          this.domManager.elements.mediaDisplay.appendChild(video);
+          this.createVideoElement(item.url, item).then(video => {
+            video.onended = () => {
+              currentIndex++;
+              showNextItem();
+            };
+            this.domManager.elements.mediaDisplay.appendChild(video);
+          });
         }
       } else {
         currentIndex++;
@@ -459,6 +507,7 @@ styleSheet.textContent = `
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative; /* Ensure proper layering */
   }
   video, img, iframe {
     max-width: 100%;
@@ -466,14 +515,14 @@ styleSheet.textContent = `
     object-fit: contain;
   }
   #download-progress {
-    position: fixed;
+    position: absolute; /* Changed to absolute for WebView compatibility */
     top: 10px;
     right: 10px;
     background-color: rgba(0, 0, 0, 0.7);
     color: white;
-    padding: 5px 10px;
-    border-radius: 5px;
-    font-size: 16px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-size: 12px;
     z-index: 1000;
   }
 `;
