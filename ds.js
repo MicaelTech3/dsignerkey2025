@@ -1,538 +1,277 @@
-// Firebase Configuration
+// Firebase
 const firebaseConfig = {
-  apiKey: "AIzaSyBhj6nv3QcIHyuznWPNM4t_0NjL0ghMwFw",
-  authDomain: "dsignertv.firebaseapp.com",
-  databaseURL: "https://dsignertv-default-rtdb.firebaseio.com",
-  projectId: "dsignertv",
-  storageBucket: "dsignertv.firebasestorage.app",
-  messagingSenderId: "930311416952",
-  appId: "1:930311416952:web:d0e7289f0688c46492d18d"
+  apiKey:"AIzaSyBhj6nv3QcIHyuznWPNM4t_0NjL0ghMwFw",
+  authDomain:"dsignertv.firebaseapp.com",
+  databaseURL:"https://dsignertv-default-rtdb.firebaseio.com",
+  projectId:"dsignertv",
+  storageBucket:"dsignertv.firebasestorage.app",
+  messagingSenderId:"930311416952",
+  appId:"1:930311416952:web:d0e7289f0688c46492d18d"
 };
-
-// Initialize Firebase
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// State Management
-class AppState {
-  constructor() {
-    this.currentKey = this.loadKey();
-    this.unsubscribe = null;
-    this.currentMedia = null;
-    this.backButtonTimeout = null;
-    this.isInPlayerMode = false;
-    this.isOnline = navigator.onLine;
+// Estado
+class AppState{
+  constructor(){
+    this.currentKey=this.loadKey();
+    this.unsubscribe=null;
+    this.currentMedia=null;
+    this.backButtonTimeout=null;
+    this.isInPlayerMode=false;
+    this.isOnline=navigator.onLine;
   }
-
-  loadKey() {
-    let key = localStorage.getItem('deviceKey');
-    if (!key) {
-      key = this.generateKey();
-      localStorage.setItem('deviceKey', key);
-    }
+  loadKey(){
+    let key=localStorage.getItem('deviceKey');
+    if(!key){ key=this.generateKey(); localStorage.setItem('deviceKey',key); }
     return key;
   }
-
-  generateKey() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    return Array.from({ length: 3 }, () => 
-      chars.charAt(Math.floor(Math.random() * chars.length))
-    ).join('') + '-' +
-    Array.from({ length: 3 }, () => 
-      chars.charAt(Math.floor(Math.random() * chars.length))
-    ).join('');
+  generateKey(){
+    const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const p=()=>Array.from({length:3},()=>chars[Math.floor(Math.random()*chars.length)]).join('');
+    return `${p()}-${p()}`;
   }
 }
 
-// DOM Management
-class DOMManager {
-  constructor() {
-    this.elements = {
-      generatorMode: document.getElementById('generator-mode'),
-      playerMode: document.getElementById('player-mode'),
-      activationKey: document.getElementById('activation-key'),
-      viewBtn: document.getElementById('view-btn'),
-      exitBtn: document.getElementById('exit-btn'),
-      mediaDisplay: document.getElementById('media-display'),
-      backBtn: document.getElementById('back-btn')
+// DOM
+class DOMManager{
+  constructor(){
+    this.elements={
+      generatorMode:document.getElementById('generator-mode'),
+      playerMode:document.getElementById('player-mode'),
+      activationKey:document.getElementById('activation-key'),
+      exitBtn:document.getElementById('exit-btn'),
+      mediaDisplay:document.getElementById('media-display'),
+      backBtn:document.getElementById('back-btn'),
+      keyOverlay:document.getElementById('key-overlay'),
     };
-    this.progressIndicator = document.createElement('div');
-    this.progressIndicator.id = 'download-progress';
+    this.progressIndicator=document.createElement('div');
+    this.progressIndicator.id='download-progress';
     document.body.appendChild(this.progressIndicator);
+    this.progressIndicator.style.display='none';
   }
-
-  initialize(state) {
-    this.elements.activationKey.textContent = state.currentKey;
-    this.updateGenStatus('Pronto para uso', 'online');
+  initialize(state){
+    if(this.elements.activationKey) this.elements.activationKey.textContent=state.currentKey;
+    this.setKeyOverlay(state.currentKey,false);
+    this.updateGenStatus('Pronto para uso','online');
     this.setupEventListeners(state);
-    this.progressIndicator.style.display = 'none';
     this.handleNetworkChange(state);
   }
-
-  setupEventListeners(state) {
-    document.addEventListener('DOMContentLoaded', () => this.checkMediaOnLoad(state));
-    this.elements.viewBtn.addEventListener('click', () => {
+  setupEventListeners(state){
+    document.addEventListener('DOMContentLoaded',()=>this.checkMediaOnLoad(state));
+    this.elements.exitBtn?.addEventListener('click',()=>this.exitPlayerMode(state));
+    this.elements.mediaDisplay.addEventListener('click',()=>this.showBackButton(state));
+    this.elements.backBtn.addEventListener('click',()=>this.exitPlayerMode(state));
+    window.addEventListener('online',()=>this.handleNetworkChange(state));
+    window.addEventListener('offline',()=>this.handleNetworkChange(state));
+    document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'||e.key==='Backspace') this.exitPlayerMode(state); });
+  }
+  updateGenStatus(msg,st){ const el=document.getElementById('gen-status'); if(!el) return; el.textContent=msg; el.className=`connection-status ${st}`;}
+  updatePlayerStatus(msg,st){ const el=document.getElementById('player-status'); if(!el) return; el.textContent=msg; el.className=`connection-status ${st}`;}
+  setKeyOverlay(key,visible=true,extra=''){ const el=this.elements.keyOverlay; if(!el) return; el.innerHTML=`<strong>${key}</strong>${extra?` <span style="opacity:.8">${extra}</span>`:''}`; el.style.display=visible?'block':'none'; }
+  showError(msg){ this.elements.mediaDisplay.innerHTML=`<div class="error-message">${msg}</div>`; }
+  showBackButton(state){ this.elements.backBtn.style.display='block'; clearTimeout(state.backButtonTimeout); state.backButtonTimeout=setTimeout(()=>{this.elements.backBtn.style.display='none';},7000); }
+  checkMediaOnLoad(state){
+    if(!state.isOnline){ this.enterPlayerMode(state); this.updatePlayerStatus('Offline','offline'); this.setKeyOverlay(state.currentKey,true,'sem conteúdo'); return; }
+    db.ref('midia/'+state.currentKey).once('value').then(snap=>{
       this.enterPlayerMode(state);
-    });
-    this.elements.exitBtn.addEventListener('click', () => this.exitPlayerMode(state));
-    this.elements.mediaDisplay.addEventListener('click', () => this.showBackButton(state));
-    this.elements.backBtn.addEventListener('click', () => this.exitPlayerMode(state));
-    window.addEventListener('online', () => this.handleNetworkChange(state));
-    window.addEventListener('offline', () => this.handleNetworkChange(state));
+      if(snap.exists()) this.updatePlayerStatus('Conectando…','online');
+      else { this.updatePlayerStatus('Sem conteúdo para esta chave','online'); this.setKeyOverlay(state.currentKey,true,'sem conteúdo'); this.clearMedia(); }
+    }).catch(()=>{ this.enterPlayerMode(state); this.updatePlayerStatus('Erro ao verificar','offline'); this.setKeyOverlay(state.currentKey,true,'erro'); });
   }
-
-  updateGenStatus(message, status) {
-    const el = document.getElementById('gen-status');
-    if (el) {
-      el.textContent = message;
-      el.className = `connection-status ${status}`;
-    }
+  enterPlayerMode(state){
+    this.elements.generatorMode.style.display='none';
+    this.elements.playerMode.style.display='block';
+    state.isInPlayerMode=true;
+    if(!state.unsubscribe) new MediaPlayer(this,state).initPlayerMode();
   }
-
-  updatePlayerStatus(message, status) {
-    const statusEl = document.getElementById('player-status');
-    if (statusEl) {
-      statusEl.textContent = message;
-      statusEl.className = `connection-status ${status}`;
-    }
-  }
-
-  showError(message) {
-    this.elements.mediaDisplay.innerHTML = `<div class="error-message">${message}</div>`;
-  }
-
-  showBackButton(state) {
-    this.elements.backBtn.style.display = 'block';
-    clearTimeout(state.backButtonTimeout);
-    state.backButtonTimeout = setTimeout(() => {
-      this.elements.backBtn.style.display = 'none';
-    }, 7000);
-  }
-
-  checkMediaOnLoad(state) {
-    if (!state.isOnline) {
-      this.showError('Sem conexão. Verificando cache...');
-      this.loadFromCache(state);
-      return;
-    }
-    db.ref('midia/' + state.currentKey).once('value')
-      .then(snapshot => {
-        if (snapshot.exists()) {
-          this.enterPlayerMode(state);
-        } else {
-          this.elements.generatorMode.style.display = 'flex';
-        }
-      })
-      .catch(error => {
-        console.error('Erro ao verificar mídia:', error);
-        this.updateGenStatus('Erro ao verificar mídia', 'offline');
-        this.elements.generatorMode.style.display = 'flex';
-        this.loadFromCache(state);
-      });
-  }
-
-  enterPlayerMode(state) {
-    this.elements.generatorMode.style.display = 'none';
-    this.elements.playerMode.style.display = 'block';
-    state.isInPlayerMode = true;
-    this.initPlayerMode(state);
-  }
-
-  exitPlayerMode(state) {
-    // Removed FullscreenManager.exitFullscreen() due to WebView limitations
-    this.elements.playerMode.style.display = 'none';
-    this.elements.generatorMode.style.display = 'flex';
+  exitPlayerMode(state){
+    this.elements.playerMode.style.display='none';
+    this.elements.generatorMode.style.display='flex';
     this.stopListening(state);
     clearTimeout(state.backButtonTimeout);
-    this.elements.backBtn.style.display = 'none';
-    state.isInPlayerMode = false;
+    this.elements.backBtn.style.display='none';
+    this.setKeyOverlay(state.currentKey,false);
+    state.isInPlayerMode=false;
   }
-
-  handleKeyboardShortcuts(e, state) {
-    if (e.key === 'Escape' || e.key === 'Backspace') {
-      this.exitPlayerMode(state);
-    }
-  }
-
-  initPlayerMode(state) {
-    const mediaPlayer = new MediaPlayer(this, state);
-    mediaPlayer.initPlayerMode();
-  }
-
-  stopListening(state) {
-    if (state.unsubscribe) {
-      db.ref('midia/' + state.currentKey).off('value', state.unsubscribe);
-      state.unsubscribe = null;
-      this.clearMedia();
-    }
-  }
-
-  clearMedia() {
-    this.elements.mediaDisplay.innerHTML = '';
-    this.progressIndicator.style.display = 'none';
-  }
-
-  updateProgress(percentage) {
-    this.progressIndicator.style.display = 'block';
-    this.progressIndicator.textContent = `${percentage}%`;
-    console.log(`Progress: ${percentage}%`); // Debug log for WebView
-  }
-
-  handleNetworkChange(state) {
-    state.isOnline = navigator.onLine;
-    this.updateGenStatus(state.isOnline ? 'Pronto para uso' : 'Offline', state.isOnline ? 'online' : 'offline');
-  }
-
-  loadFromCache(state) {
-    MediaCache.getCachedVideo(this.state.currentMedia?.url).then(cachedBlob => {
-      if (cachedBlob && this.state.currentMedia?.tipo === 'video') {
-        this.elements.mediaDisplay.innerHTML = '';
-        const video = document.createElement('video');
-        this.setVideoAttributes(video, this.state.currentMedia);
-        video.src = URL.createObjectURL(cachedBlob);
-        this.elements.mediaDisplay.appendChild(video);
-      } else {
-        this.showError('Nenhum conteúdo cached disponível');
-      }
-    });
-  }
+  stopListening(state){ if(state.unsubscribe){ db.ref('midia/'+state.currentKey).off('value',state.unsubscribe); state.unsubscribe=null; } this.clearMedia(); }
+  clearMedia(){ this.elements.mediaDisplay.innerHTML=''; this.progressIndicator.style.display='none'; }
+  updateProgress(p){ this.progressIndicator.style.display='block'; this.progressIndicator.textContent=`${p}%`; if(p>=100) setTimeout(()=>this.progressIndicator.style.display='none',800); }
+  handleNetworkChange(state){ state.isOnline=navigator.onLine; this.updateGenStatus(state.isOnline?'Pronto para uso':'Offline', state.isOnline?'online':'offline'); }
 }
 
-// Fullscreen Management (Disabled for WebView)
-class FullscreenManager {
-  static enterFullscreen() {
-    console.warn('Fullscreen not supported in WebView. Use native Android fullscreen.');
-  }
-
-  static exitFullscreen() {
-    console.warn('Fullscreen not supported in WebView. Use native Android fullscreen.');
-  }
+// Cache de vídeo (IndexedDB)
+class MediaCache{
+  static async initDB(){ return new Promise((res,rej)=>{ const r=indexedDB.open('VideoCacheDB',1); r.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains('videos')) db.createObjectStore('videos');}; r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+  static async cacheVideo(url,dom){ const key=`cached-video-${encodeURIComponent(url)}`; try{ const idb=await this.initDB(); const resp=await fetch(url,{mode:'cors'}); if(!resp.ok) throw new Error('HTTP '+resp.status); const reader=resp.body.getReader(); const total=+resp.headers.get('content-length')||1; let got=0, chunks=[]; while(true){ const {done,value}=await reader.read(); if(done) break; chunks.push(value); got+=value.length; dom.updateProgress(Math.round(got/total*100)); } const blob=new Blob(chunks); const tx=idb.transaction('videos','readwrite'); tx.objectStore('videos').put(blob,key); dom.updateProgress(100); }catch{ dom.updateProgress(0); } }
+  static async getCachedVideo(url){ const key=`cached-video-${encodeURIComponent(url)}`; try{ const idb=await this.initDB(); return await new Promise(res=>{ const tx=idb.transaction('videos','readonly'); const g=tx.objectStore('videos').get(key); g.onsuccess=()=>res(g.result||null); g.onerror=()=>res(null); }); }catch{ return null; } }
 }
 
-// Media Cache Management
-class MediaCache {
-  static async initDB() {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open("VideoCacheDB", 1);
-      request.onupgradeneeded = (event) => {
-        const db = event.target.result;
-        if (!db.objectStoreNames.contains("videos")) {
-          db.createObjectStore("videos");
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  static async cacheVideo(videoUrl, domManager) {
-    const fileName = encodeURIComponent(videoUrl);
-    const cacheKey = `cached-video-${fileName}`;
-    
-    try {
-      const db = await this.initDB();
-      const response = await fetch(videoUrl, { mode: 'cors' });
-      if (!response.ok) throw new Error('Falha na resposta da rede: ' + response.status);
-      const reader = response.body.getReader();
-      const contentLength = +response.headers.get('content-length') || 1;
-      let receivedLength = 0;
-      let chunks = [];
-
-      await new Promise((resolve, reject) => {
-        function read() {
-          reader.read().then(({ done, value }) => {
-            if (done) {
-              resolve();
-              return;
-            }
-            if (value) {
-              chunks.push(value);
-              receivedLength += value.length;
-              const percentage = Math.round((receivedLength / contentLength) * 100);
-              domManager.updateProgress(percentage);
-            }
-            read();
-          }).catch(reject);
-        }
-        read();
-      });
-
-      const blob = new Blob(chunks);
-      const saveTx = db.transaction("readwrite", "videos");
-      saveTx.objectStore("videos").put(blob, cacheKey);
-      domManager.updateProgress(100);
-      setTimeout(() => domManager.progressIndicator.style.display = 'none', 1000);
-    } catch (err) {
-      console.error("Erro ao cachear vídeo:", err);
-      domManager.updateProgress(0);
-      domManager.progressIndicator.style.display = 'none';
-    }
-  }
-
-  static async getCachedVideo(videoUrl) {
-    const fileName = encodeURIComponent(videoUrl);
-    const cacheKey = `cached-video-${fileName}`;
-    try {
-      const db = await this.initDB();
-      const transaction = db.transaction("videos", "readonly");
-      const store = transaction.objectStore("videos");
-      const getRequest = store.get(cacheKey);
-      return new Promise((resolve) => {
-        getRequest.onsuccess = () => resolve(getRequest.result);
-      });
-    } catch (err) {
-      console.error("Erro ao acessar cache:", err);
-      return null;
-    }
-  }
-}
-
-// Media Player Management
-class MediaPlayer {
-  constructor(domManager, state) {
-    this.domManager = domManager;
-    this.state = state;
-  }
-
-  initPlayerMode() {
-    this.domManager.updatePlayerStatus('Conectando...', 'offline');
-    window.addEventListener('online', () => this.handleOnline());
-    window.addEventListener('offline', () => this.handleOffline());
-    this.startPublicListening();
-  }
-
-  handleOnline() {
-    this.domManager.updatePlayerStatus('✔ Online', 'online');
-    if (!this.state.unsubscribe) {
-      this.startPublicListening();
-    }
-  }
-
-  handleOffline() {
-    this.domManager.updatePlayerStatus('⚡ Offline', 'offline');
-    this.loadFromCache();
-  }
-
-  startPublicListening() {
-    this.domManager.updatePlayerStatus('Conectando...', 'offline');
+// Player
+class MediaPlayer{
+  constructor(dom,state){ this.domManager=dom; this.state=state; }
+  initPlayerMode(){ this.domManager.updatePlayerStatus('Conectando…','offline'); window.addEventListener('online',()=>this.handleOnline()); window.addEventListener('offline',()=>this.handleOffline()); this.startListening(); }
+  handleOnline(){ this.domManager.updatePlayerStatus('✔ Online','online'); if(!this.state.unsubscribe) this.startListening(); }
+  handleOffline(){ this.domManager.updatePlayerStatus('⚡ Offline','offline'); this.domManager.setKeyOverlay(this.state.currentKey,true,'offline'); }
+  startListening(){
     this.stopListening();
-
-    this.state.unsubscribe = db.ref('midia/' + this.state.currentKey).on('value', 
-      (snapshot) => {
-        if (snapshot.exists()) {
-          this.handleMediaUpdate(snapshot);
-          if (!this.state.isInPlayerMode) {
-            this.domManager.enterPlayerMode(this.state);
-          }
-        } else if (this.state.isInPlayerMode) {
-          this.domManager.exitPlayerMode(this.state);
-          this.domManager.showError('Nenhum conteúdo encontrado para esta chave');
+    const ref=db.ref('midia/'+this.state.currentKey);
+    this.state.unsubscribe=ref.on('value',
+      (snap)=>{
+        if(snap.exists()){
+          this.handleMediaUpdate(snap);
+          this.domManager.setKeyOverlay(this.state.currentKey,false);
+        }else{
+          // Sem conteúdo → fica no player, limpa e exibe a chave
+          this.state.currentMedia=null;
+          this.pauseAndCleanMedia();
+          this.domManager.clearMedia();
+          this.domManager.updatePlayerStatus('Sem conteúdo para esta chave','online');
+          this.domManager.setKeyOverlay(this.state.currentKey,true,'sem conteúdo');
         }
       },
-      (error) => {
-        console.error('Erro ao acessar mídia:', error);
-        this.domManager.updatePlayerStatus('Erro de conexão: ' + error.message, 'offline');
-        if (this.state.isInPlayerMode) {
-          this.domManager.exitPlayerMode(this.state);
-          this.loadFromCache();
-        }
+      (err)=>{
+        console.error('Erro no listener:',err);
+        this.domManager.updatePlayerStatus('Erro de conexão','offline');
+        this.domManager.setKeyOverlay(this.state.currentKey,true,'erro');
       }
     );
   }
+  stopListening(){ if(this.state.unsubscribe){ db.ref('midia/'+this.state.currentKey).off('value',this.state.unsubscribe); this.state.unsubscribe=null; this.domManager.clearMedia(); } }
 
-  stopListening() {
-    if (this.state.unsubscribe) {
-      db.ref('midia/' + this.state.currentKey).off('value', this.state.unsubscribe);
-      this.state.unsubscribe = null;
-      this.domManager.clearMedia();
-    }
+  // NOVO: parar qualquer mídia que esteja tocando
+  pauseAndCleanMedia(){
+    const root=this.domManager.elements.mediaDisplay;
+    try{
+      root.querySelectorAll('video').forEach(v=>{ try{ v.pause(); v.removeAttribute('src'); v.load(); }catch{} });
+      root.querySelectorAll('iframe').forEach(f=>{ try{ f.src='about:blank'; }catch{} f.remove(); });
+    }catch{}
   }
 
-  async handleMediaUpdate(snapshot) {
-    const media = snapshot.val();
-    if (JSON.stringify(this.state.currentMedia) === JSON.stringify(media)) return;
+  async handleMediaUpdate(snapshot){
+    const media=snapshot.val();
+    if(JSON.stringify(this.state.currentMedia)===JSON.stringify(media)) return;
 
-    this.state.currentMedia = media;
-    this.domManager.updatePlayerStatus('✔ Online - Conteúdo recebido', 'online');
-    this.domManager.elements.mediaDisplay.innerHTML = '';
+    this.state.currentMedia=media;
+    this.domManager.updatePlayerStatus('✔ Online - Conteúdo recebido','online');
 
-    if (media.tipo === 'text') {
-      const textDiv = document.createElement('div');
-      textDiv.className = 'text-message';
-      textDiv.textContent = media.content;
-      textDiv.style.backgroundColor = media.bgColor || '#2a2f5b';
-      textDiv.style.color = media.color || 'white';
-      textDiv.style.fontSize = `${media.fontSize || 24}px`;
-      this.domManager.elements.mediaDisplay.appendChild(textDiv);
-    } else if (media.tipo === 'image') {
-      const img = document.createElement('img');
-      img.src = media.url;
-      img.onerror = () => this.domManager.showError('Erro ao carregar a imagem');
+    // antes de renderizar: parar e limpar
+    this.pauseAndCleanMedia();
+    this.domManager.clearMedia();
+
+    // NOVO: STOP → tela preta + chave no canto
+    if(media.tipo==='stop'){
+      const black=document.createElement('div');
+      black.style.cssText='position:absolute;inset:0;background:#000;';
+      this.domManager.elements.mediaDisplay.appendChild(black);
+      this.domManager.setKeyOverlay(this.state.currentKey,true,'sem conteúdo');
+      return;
+    }
+
+    // TEXT
+    if(media.tipo==='text'){
+      const el=document.createElement('div');
+      el.className='text-message';
+      el.textContent=media.content||'';
+      el.style.backgroundColor=media.bgColor||'#2a2f5b';
+      el.style.color=media.color||'#fff';
+      el.style.fontSize=`${media.fontSize||24}px`;
+      this.domManager.elements.mediaDisplay.appendChild(el);
+      return;
+    }
+
+    // IMAGE
+    if(media.tipo==='image'){
+      const img=document.createElement('img');
+      img.src=media.url;
+      img.onerror=()=>{ this.domManager.showError('Erro ao carregar a imagem'); this.domManager.setKeyOverlay(this.state.currentKey,true,'erro'); };
       this.domManager.elements.mediaDisplay.appendChild(img);
-    } else if (media.tipo === 'video') {
-      if (media.url.includes('youtube.com') || media.url.includes('youtu.be')) {
-        const videoId = media.url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
-        if (videoId) {
-          const iframe = document.createElement('iframe');
-          iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}`;
-          iframe.style.width = '100%';
-          iframe.style.height = '100%';
-          iframe.frameBorder = '0';
-          iframe.allow = 'autoplay; encrypted-media';
+      return;
+    }
+
+    // VIDEO
+    if(media.tipo==='video'){
+      if(media.url?.includes('youtube.com')||media.url?.includes('youtu.be')){
+        const id=media.url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
+        if(id){
+          const iframe=document.createElement('iframe');
+          const loop=media.loop?`&loop=1&playlist=${id}`:'';
+          iframe.src=`https://www.youtube.com/embed/${id}?autoplay=1&mute=1${loop}`;
+          iframe.allow='autoplay; encrypted-media';
+          iframe.style.cssText='position:absolute;inset:0;width:100%;height:100%;';
           this.domManager.elements.mediaDisplay.appendChild(iframe);
-        } else {
+        }else{
           this.domManager.showError('URL do YouTube inválida');
+          this.domManager.setKeyOverlay(this.state.currentKey,true,'erro url');
         }
-      } else {
-        const video = await this.createVideoElement(media.url, media);
-        this.domManager.elements.mediaDisplay.appendChild(video);
+        return;
       }
-    } else if (media.tipo === 'playlist' && media.items && media.items.length > 0) {
+      const video=await this.createVideoElement(media.url,media);
+      this.domManager.elements.mediaDisplay.appendChild(video);
+      return;
+    }
+
+    // PLAYLIST
+    if(media.tipo==='playlist' && Array.isArray(media.items) && media.items.length>0){
       this.playPlaylist(media.items);
-    } else {
-      this.domManager.showError('Tipo de mídia desconhecido');
-    }
-  }
-
-  async createVideoElement(url, media) {
-    const cachedBlob = await MediaCache.getCachedVideo(url);
-    const video = document.createElement('video');
-    this.setVideoAttributes(video, media);
-
-    if (cachedBlob) {
-      video.src = URL.createObjectURL(cachedBlob);
-    } else {
-      video.src = url;
+      return;
     }
 
-    video.onplaying = () => {
-      if (!cachedBlob && this.state.isOnline) {
-        MediaCache.cacheVideo(url, this.domManager);
-      }
-    };
-    video.onerror = () => {
-      console.error('Erro ao carregar vídeo:', url);
-      this.domManager.showError('Erro ao carregar o vídeo');
-    };
-    return video;
+    // desconhecido
+    this.domManager.showError('Tipo de mídia desconhecido');
+    this.domManager.setKeyOverlay(this.state.currentKey,true,'desconhecido');
   }
 
-  setVideoAttributes(video, media) {
-    video.autoplay = true;
-    video.muted = true;
-    video.playsInline = true;
-    video.controls = false;
-    video.loop = true;
-    video.onloadeddata = () => video.play().catch(err => {
-      console.error('Falha ao reproduzir o vídeo:', err);
-      this.domManager.showError('Falha ao reproduzir o vídeo');
-    });
+  async createVideoElement(url,media){
+    const cached=await MediaCache.getCachedVideo(url);
+    const v=document.createElement('video');
+    this.setVideoAttributes(v,media);
+    v.src=cached?URL.createObjectURL(cached):url;
+
+    v.onplaying=()=>{ if(!cached && navigator.onLine) MediaCache.cacheVideo(url,this.domManager); };
+    v.onerror=()=>{ this.pauseAndCleanMedia(); this.domManager.clearMedia(); this.domManager.updatePlayerStatus('Erro ao carregar o vídeo (404)','online'); this.domManager.setKeyOverlay(this.state.currentKey,true,'sem conteúdo'); };
+    return v;
+  }
+  setVideoAttributes(v,media){
+    v.autoplay=true; v.muted=true; v.playsInline=true; v.controls=false; v.loop=!!media.loop;
+    v.onloadeddata=()=>v.play().catch(()=>this.domManager.showError('Falha ao reproduzir o vídeo'));
+    v.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:contain;';
   }
 
-  playPlaylist(items) {
-    let currentIndex = 0;
-    const sortedItems = items.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+  playPlaylist(items){
+    let i=0;
+    const arr=items.slice().sort((a,b)=>(a.order||0)-(b.order||0));
+    const next=()=>{
+      if(i>=arr.length) i=0;
+      const it=arr[i++];
 
-    const showNextItem = () => {
-      if (currentIndex >= sortedItems.length) currentIndex = 0;
-      const item = sortedItems[currentIndex];
-      this.domManager.elements.mediaDisplay.innerHTML = '';
+      this.pauseAndCleanMedia();
+      this.domManager.clearMedia();
 
-      if (item.type === 'image') {
-        const img = document.createElement('img');
-        img.src = item.url;
-        img.onerror = () => {
-          currentIndex++;
-          showNextItem();
-        };
+      if(it.type==='image'){
+        const img=document.createElement('img');
+        img.src=it.url;
+        img.onerror=()=>next();
         this.domManager.elements.mediaDisplay.appendChild(img);
-        setTimeout(() => {
-          currentIndex++;
-          showNextItem();
-        }, (item.duration || 10) * 1000);
-      } else if (item.type === 'video') {
-        if (item.url.includes('youtube.com') || item.url.includes('youtu.be')) {
-          const videoId = item.url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
-          if (videoId) {
-            const iframe = document.createElement('iframe');
-            iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}`;
-            iframe.style.width = '100%';
-            iframe.style.height = '100%';
-            iframe.frameBorder = '0';
-            iframe.allow = 'autoplay; encrypted-media';
-            this.domManager.elements.mediaDisplay.appendChild(iframe);
-          } else {
-            currentIndex++;
-            showNextItem();
-          }
-        } else {
-          this.createVideoElement(item.url, item).then(video => {
-            video.onended = () => {
-              currentIndex++;
-              showNextItem();
-            };
-            this.domManager.elements.mediaDisplay.appendChild(video);
-          });
+        setTimeout(next,(it.duration||10)*1000);
+      }else if(it.type==='video'){
+        if(it.url?.includes('youtube.com')||it.url?.includes('youtu.be')){
+          const id=it.url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
+          if(!id) return next();
+          const iframe=document.createElement('iframe');
+          iframe.src=`https://www.youtube.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}`;
+          iframe.allow='autoplay; encrypted-media';
+          iframe.style.cssText='position:absolute;inset:0;width:100%;height:100%;';
+          this.domManager.elements.mediaDisplay.appendChild(iframe);
+          setTimeout(next,5*60*1000); // segurança
+        }else{
+          this.createVideoElement(it.url,it).then(v=>{ v.onended=()=>next(); this.domManager.elements.mediaDisplay.appendChild(v); }).catch(next);
         }
-      } else {
-        currentIndex++;
-        showNextItem();
-      }
+      }else{ next(); }
     };
-
-    showNextItem();
+    next();
   }
 }
 
-// CSS Styling
-const styleSheet = document.createElement('style');
-styleSheet.textContent = `
-  .error-message {
-    color: #ff5555;
-    font-size: 24px;
-    text-align: center;
-    padding: 20px;
-  }
-  .text-message {
-    padding: 20px;
-    border-radius: 10px;
-    max-width: 80%;
-    margin: 0 auto;
-    text-align: center;
-    word-break: break-word;
-  }
-  #media-display {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative; /* Ensure proper layering */
-  }
-  video, img, iframe {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-  }
-  #download-progress {
-    position: absolute; /* Changed to absolute for WebView compatibility */
-    top: 10px;
-    right: 10px;
-    background-color: rgba(0, 0, 0, 0.7);
-    color: white;
-    padding: 2px 5px;
-    border-radius: 3px;
-    font-size: 12px;
-    z-index: 1000;
-  }
-`;
-document.head.appendChild(styleSheet);
-
-// Initialize Application
-(() => {
-  const appState = new AppState();
-  const domManager = new DOMManager();
-  const mediaPlayer = new MediaPlayer(domManager, appState);
-  domManager.initialize(appState);
-  mediaPlayer.checkMediaOnLoad();
-})();
+// Boot
+(()=>{ const state=new AppState(); const dom=new DOMManager(); dom.initialize(state); dom.checkMediaOnLoad(state); })();

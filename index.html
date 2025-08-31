@@ -1,37 +1,39 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dskey - Digital Signage Player</title>
-    <link rel="stylesheet" href="ds.css">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dskey - Digital Signage Player</title>
+  <link rel="stylesheet" href="ds.css">
 </head>
 <body>
-    <!-- Modo Gerador -->
-    <div id="generator-mode">
-        <h2 class="logo">Dsigner</h2>
-        <p class="description">
-            VÁ PARA NOSSO PAINEL EM 
-            <span class="link-part1">https://</span><span class="link-part2">dsignertv.com.br/</span>
-        </p>
-        <div id="activation-key" class="key-display">Gerando chave...</div>
-        <div class="connection-status" id="gen-status"></div>
-    </div>
+  <!-- Modo Gerador -->
+  <div id="generator-mode">
+    <h2 class="logo">Dsigner</h2>
+    <p class="description">
+      VÁ PARA NOSSO PAINEL EM <span class="link-part1">https://</span><span class="link-part2">dsignertv.com.br/</span>
+    </p>
+    <div id="activation-key" class="key-display">Gerando chave...</div>
+    <div class="connection-status" id="gen-status"></div>
+  </div>
 
-    <!-- Modo Player -->
-    <div id="player-mode">
-        <button class="exit-button" id="exit-btn">Sair (ESC)</button>
-        <button class="back-button" id="back-btn">ver chave</button>
-        <div id="media-display"></div>
-        <div class="media-info" id="media-info"></div>
-        <div class="connection-status" id="player-status"></div>
-    </div>
+  <!-- Modo Player -->
+  <div id="player-mode">
+    <button class="exit-button" id="exit-btn">Sair (ESC)</button>
+    <button class="back-button" id="back-btn">ver chave</button>
 
-    <!-- Firebase SDK v10 (compat) -->
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
-    <script src="ds.js"></script>
-    <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'93c353b3ddbd8978',t:'MTc0NjY0ODI3Mi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>
+    <!-- NOVO: chave no canto -->
+    <div id="key-overlay" class="key-overlay"></div>
+
+    <div id="media-display"></div>
+    <div class="media-info" id="media-info"></div>
+    <div class="connection-status" id="player-status"></div>
+  </div>
+
+  <!-- Firebase SDK v10 (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+  <script src="ds.js"></script>
 </body>
 </html>
